@@ -1,5 +1,12 @@
 # 🔥 Prometheus: The Open Knowledge Movement
 *Decentralized Library of Alexandria 2.0 — guided by Mnemosyne.*
+## License
+- **Code:** MIT — see [LICENSE](LICENSE)
+- **Content (docs/images/PDFs/posters):** CC BY-SA 4.0 — see [LICENSE-CONTENT.md](LICENSE-CONTENT.md)
+- By contributing, you agree code = MIT and content = CC BY-SA 4.0.
+
+© Prometheus contributors — CC BY-SA 4.0. Changes may have been made.
+
 
 [![Code License: MIT](https://img.shields.io/badge/Code%20License-MIT-blue.svg)](LICENSE)
 [![Content License: CC BY-SA 4.0](https://img.shields.io/badge/Content%20License-CC%20BY--SA%204.0-lightgrey.svg)](LICENSE-CONTENT.md)
