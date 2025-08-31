@@ -1,4 +1,12 @@
 # 🔥 Prometheus: The Open Knowledge Movement
+*Decentralized Library of Alexandria 2.0 — guided by Mnemosyne.*
+
+[![Code License: MIT](https://img.shields.io/badge/Code%20License-MIT-blue.svg)](LICENSE)
+[![Content License: CC BY-SA 4.0](https://img.shields.io/badge/Content%20License-CC%20BY--SA%204.0-lightgrey.svg)](LICENSE-CONTENT.md)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Discussions](https://img.shields.io/badge/Discussions-open-informational.svg)](https://github.com//droob8716-collab/Prometheus-Open-Knowledge-Movement/edit/main
+
+# 🔥 Prometheus: The Open Knowledge Movement
 
 ## 📖 What is Prometheus?
 Prometheus is an **open-source movement** to create a **decentralized, censorship-resistant Library of Alexandria 2.0** — a universal archive of human knowledge that **no one can erase, censor, or control**.
