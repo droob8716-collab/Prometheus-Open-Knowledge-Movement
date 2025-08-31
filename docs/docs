@@ -1,0 +1,171 @@
+# 🏗️ Prometheus Architecture — v0.1 Draft
+
+> Prometheus gives the fire. **Mnemosyne carries the light.**  
+> Decentralized Library of Alexandria 2.0 — censorship‑resistant, citation‑first.
+
+## 1) Purpose & Principles
+- **Permanence:** Knowledge survives outages, censorship, churn.
+- **Provenance:** Every item has source, license, hash, and citations.
+- **Dual‑truth:** Two ledgers—`RAW` (all submissions) and `VERIFIED` (peer‑reviewed facts).
+- **Privacy & consent by default:** PII detection/redaction; consent rules for sensitive media.
+- **Cite‑first answers:** Mnemosyne returns sources (CIDs, heights, reviewers) with every response.
+- **Open licenses:** Code = MIT. Content = CC BY‑SA 4.0 (unless otherwise marked).
+
+## 2) High‑Level Overview
+```
+[Client/CLI/UI]
+     │  upload/query
+     ▼
+[Gateway API]  ───► [Ingest Pipeline] ───► [IPFS Storage Mesh]
+     │                         │                 │
+     │                         ├─► [PII/Policy scan + hashes]
+     │                         └─► [Indexers: Metadata + Full‑text + Vectors]
+     │
+     ├─► write->  [RAW Chain (append‑only)]
+     └─► propose  [Verification Workflow] ─► vote ─► [VERIFIED Chain]
+
+                                 ▲
+                          [Mnemosyne (RAG)]
+                  retrieve → cite → answer (persona optional)
+```
+
+## 3) Core Components
+### 3.1 Gateway API
+- REST/GraphQL endpoints for **ingest**, **search**, **retrieve**, **verify**, **ask** (Mnemosyne).
+- Authn via API keys initially; later DIDs/keys for signed submissions.
+
+### 3.2 Ingest Pipeline
+- Compute **SHA‑256** (content hash) and **pHash** (perceptual) for dedup.
+- Extract text (OCR for images/PDFs; ASR for audio/video), then **PII/redaction pass**.
+- Write file to **IPFS** (get CID).  
+- Build **DocumentMetadata** and send to indexers & RAW chain.
+
+### 3.3 Storage Mesh (IPFS + mirrors)
+- Minimum: public Kubo node + pinning service; later: multi‑region gateway & community pinsets.
+- Optional cold backups (S3/Glacier, R2) keyed by CID.
+
+### 3.4 Dual Chains (ledgers)
+- **RAW Chain:** append‑only feed of every submission (hash, CID, submitter sig, timestamp, license, safety flags).  
+  - PoC option: **signed git‑log** or **Merkle log** anchored with OpenTimestamps/ETH.
+- **VERIFIED Chain:** curated feed for **facts** after peer review.  
+  - Entries reference RAW `cid` + reviewed claims; include reviewer set + quorum proof.
+
+### 3.5 Index/Search
+- **Metadata index:** Postgres (PoC) → OpenSearch later.  
+- **Full‑text:** Lucene/OpenSearch.  
+- **Vectors (optional in PoC):** Qdrant/Weaviate for semantic search.  
+- All indices store `cid`, `sha256`, `license`, `source`, `language`, `content_type`, `trust_score`.
+
+### 3.6 Mnemosyne (Eternal Librarian)
+- **RAG pipeline**: retrieve by keyword/semantic → re‑rank → answer **with citations** (CIDs + chain heights).
+- **Persona layer (opt‑in)**: voice/style models only with explicit consent for the subject.
+- **Answer policy**: contextual warnings for sensitive topics; no step‑by‑step immediate‑harm instructions.
+
+### 3.7 Node
+- A Prometheus Node runs: IPFS daemon, Gateway API, Ingest, Indexers, and local caches.
+- Community nodes can **mirror** pinsets and **replicate** indices for resilience.
+
+### 3.8 Identity & Signing
+- Contributor DID/keypair (Ed25519). Submissions are **signed**; signatures stored on RAW.
+- Reviewers sign **verification records**; quorum threshold recorded on VERIFIED.
+
+## 4) Data Lifecycle
+1. **Submit**: user uploads file/URL → Gateway.
+2. **Ingest**: hashing, OCR/ASR, PII scan, license capture.
+3. **Store**: put to IPFS → get **CID**.
+4. **Index**: metadata, text, and (optionally) vectors.
+5. **RAW write**: append signed record to RAW chain with `cid` + hashes.
+6. **Verify** (optional): create a **claim** (what is asserted to be true), attach sources, request review.
+7. **Review**: N reviewers sign off (quorum, e.g., 3 of 5). Conflicts recorded as counter‑claims.
+8. **VERIFIED write**: curated fact record with claims, evidence, reviewer set, and quorum proof.
+9. **Query**: Mnemosyne retrieves; always returns **citations** to RAW/VERIFIED entries.
+
+## 5) Minimal PoC (2–3 weeks targetable scope)
+**Stack (suggested):**
+- API: **FastAPI** (Python) or **Node/Express**.
+- Storage: **IPFS Kubo** + local pin.
+- Index: **SQLite/Postgres** for metadata + basic full‑text (FTS5) to start.
+- RAW ledger: **signed JSONL Merkle log** in Git; anchor weekly with **OpenTimestamps**.
+- VERIFIED ledger: JSON entries in a separate log with signed **quorum** field.
+- Mnemosyne: simple RAG stub that returns top‑k docs + **CID citations** (no model training required).
+
+**Endpoints:**
+```
+POST /ingest           # upload file/url → returns {cid, sha256}
+GET  /doc/{cid}        # metadata + where to fetch
+GET  /search?q=...     # keyword search → {cid, title, snippet, score}
+POST /verify/propose   # submit claim referencing CIDs
+POST /verify/vote      # reviewer signs claim
+GET  /ask?q=...        # RAG answer + citations [{cid, chain, height}]
+```
+
+## 6) Schemas (v0.1)
+```json
+// DocumentMetadata
+{
+  "cid": "bafy...",
+  "sha256": "abc123...",
+  "title": "string",
+  "description": "string",
+  "source_url": "https://...",
+  "contributors": ["did:pkh:ed25519:..."],
+  "license": "CC-BY-SA-4.0",
+  "content_type": "pdf|image|audio|video|text",
+  "language": "en",
+  "created_at": "ISO8601",
+  "ingested_at": "ISO8601",
+  "safety_flags": {"pii": false, "graphic": false, "restricted": false},
+  "provenance": [{"type":"upload|crawl","detail":"..."}],
+  "tags": ["history","math"],
+  "raw_chain_ref": {"height": 1234, "tx": "0x..."},
+  "trust_score": 0.1
+}
+```
+```json
+// VerificationRecord
+{
+  "claim_id": "uuid",
+  "summary": "Concise statement being verified",
+  "evidence_cids": ["bafy...","bafy..."],
+  "method": "peer_review",
+  "reviewers": ["did:...","did:...","did:..."],
+  "quorum": {"type":"m-of-n","m":3,"n":5},
+  "decision": "verified|contested|rejected",
+  "notes": "links, analysis, caveats",
+  "signature_bundle": ["sig1","sig2","sig3"],
+  "raw_refs": [{"height":1234,"tx":"0x..."}],
+  "verified_chain_ref": {"height": 456, "tx": "0x..."}
+}
+```
+
+## 7) Safety, Privacy, and Consent
+- **PII detection** (names, SSNs, addresses, faces) → redact/blur or require consent token.
+- **Non‑consensual content**: block from gateway; never publish RAW/VERIFIED entries with doxxing/medical PII.
+- **Dangerous topics**: provide **context/warnings**; no step‑by‑step immediate‑harm instructions.
+- **Takedowns**: remove from Prometheus gateways/indexes on valid reports while keeping immutable audit trails (hashes) for transparency.
+
+## 8) Threat Model & Mitigations (snapshot)
+- **Spam flood:** rate‑limits, stake/fee, proof‑of‑work stamp on ingest.
+- **Poisoning:** signed submissions + reviewer reputation; VERIFIED requires quorum.
+- **Censorship:** multi‑gateway mirrors + community pin sets.
+- **Legal risk:** license tracking; flag non‑redistributable content; store hashes/metadata only when required.
+- **Model attacks (RAG):** citations + provenance shown; block unvetted sources from VERIFIED answers.
+
+## 9) Licensing & Provenance
+- **Code:** MIT (SPDX: `MIT`).  
+- **Content:** CC BY‑SA 4.0; store `license` in metadata; preserve upstream attribution fields.
+- Keep a `NOTICE` file for third‑party assets and licenses.
+
+## 10) Open Questions (for Issue discussion)
+- What is the **initial verification quorum** (3/5? reputation‑weighted?).
+- Should VERIFIED be a sidechain/rollup or anchored Merkle log?
+- Minimal **metadata schema** for launch vs. nice‑to‑have fields.
+- How do we handle **copyrighted** but historically important documents? (metadata‑only?)
+- Best way to expose **public datasets** (IPFS gateways vs. requester‑pays style).
+
+---
+
+### Next Actions
+- Create `/docs/architecture.md` (this file).  
+- Open “Architecture Sketch” issue to debate: quorum, schema, and PoC scope.  
+- Start PoC: IPFS ingest → RAW log write → basic search → Mnemosyne cite‑first answer.
