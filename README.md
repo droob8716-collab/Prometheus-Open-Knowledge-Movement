@@ -1,3 +1,4 @@
+
 # 🔥 Prometheus: The Open Knowledge Movement
 *Decentralized Library of Alexandria 2.0 — guided by Mnemosyne.*
 ## License
@@ -51,3 +52,29 @@ Prometheus gives the fire. **Mnemosyne carries the light.**
 ## 🤝 Get Involved
 - Open issues, submit PRs, propose ideas  
 - Weekly updates in `WEEKLY_UPDATE_TEMPLATE.md`  
+
+# Prometheus PoC (FastAPI)
+
+Minimal proof-of-concept API for Prometheus.
+
+## Quickstart
+```bash
+python -m venv .venv && source .venv/bin/activate  # (Windows: .venv\Scripts\activate)
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+## Endpoints
+- `POST /ingest` — upload a file; returns `{cid, sha256}`
+- `GET /doc/{cid}` — fetch metadata for a document
+- `GET /search?q=term` — keyword search across title/description/text
+- `POST /verify/propose` — propose a verification claim with evidence CIDs
+- `POST /verify/vote` — cast a vote (verified/contested/rejected) for a claim
+- `GET /ask?q=term` — returns top matches with **citations** (stub)
+
+## Notes
+- Storage is local (`./storage/`). A **CID** is simulated as the SHA‑256 hex digest.
+- Metadata is stored in SQLite (`./app/data.db`) with FTS5 for search.
+- RAW and VERIFIED ledgers are JSONL files: `raw_log.jsonl` and `verified_log.jsonl`.
+- This PoC is intentionally minimal to make it easy to run and extend.
+33067b3 (PoC: FastAPI ingest/search/verify + citations)
