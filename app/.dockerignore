@@ -1,0 +1,7 @@
+.venv
+__pycache__
+storage
+app/data.db
+app/*log.jsonl
+.git
+.gitignore

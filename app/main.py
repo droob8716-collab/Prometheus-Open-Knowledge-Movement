@@ -1,3 +1,4 @@
+
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
 from typing import Optional, List
@@ -8,6 +9,13 @@ from .db import init_db, get_conn
 from .models import IngestResponse, DocMeta, SearchHit, VerifyProposal, VerifyVote
 from .utils import sha256_bytes, now_iso, guess_content_type, extract_text_stub
 
+from .ipfs_client import IPFSClient
+from .storage import Ledgers
+from .ingestion.pdf_ocr import extract_text_from_pdf
+
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Body
+
+
 APP_DIR = Path(__file__).parent
 STORAGE_DIR = APP_DIR.parent / "storage"
 RAW_LOG = APP_DIR / "raw_log.jsonl"
@@ -15,6 +23,85 @@ VERIFIED_LOG = APP_DIR / "verified_log.jsonl"
 
 app = FastAPI(title="Prometheus PoC API", version="0.1")
 from fastapi.responses import HTMLResponse
+
+@app.get("/export/seed")
+def export_seed():
+    conn = get_conn(); cur = conn.cursor()
+    docs = cur.execute("""
+      SELECT cid, sha256, title, description, license, content_type, ingested_at
+      FROM documents
+    """).fetchall()
+    claims = cur.execute("""
+      SELECT id, summary, status, evidence_cids
+      FROM claims ORDER BY id
+    """).fetchall()
+    conn.close()
+    return {"docs": [dict(r) for r in docs], "claims": [dict(r) for r in claims]}
+
+@app.post("/import/seed")
+def import_seed(payload: dict = Body(...)):
+    conn = get_conn(); cur = conn.cursor()
+    imported = {"docs": 0, "claims": 0, "claim_id_map": {}}
+
+    # documents (upsert)
+    import json as _json
+    for d in (payload.get("docs") or []):
+        cid = d.get("cid"); 
+        if not cid: 
+            continue
+        cur.execute("""INSERT OR REPLACE INTO documents
+                       (cid, sha256, title, description, license, content_type, path, ingested_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (cid, d.get("sha256",""), d.get("title"), d.get("description"),
+                     d.get("license"), d.get("content_type"),
+                     str((Path(__file__).parent.parent / "storage" / f"{cid}").resolve()),
+                     d.get("ingested_at") or now_iso()))
+        cur.execute("DELETE FROM documents_fts WHERE cid=?", (cid,))
+        cur.execute("INSERT INTO documents_fts(cid, title, description, text) VALUES (?, ?, ?, ?)",
+                    (cid, d.get("title") or "", d.get("description") or "", ""))
+        imported["docs"] += 1
+
+    # claims (preserve id if free; otherwise remap)
+    for c in (payload.get("claims") or []):
+        keep_id = c.get("id")
+        blob = _json.dumps(c.get("evidence_cids") or [])
+        if keep_id is not None:
+            exists = cur.execute("SELECT 1 FROM claims WHERE id=?", (keep_id,)).fetchone()
+            if exists:
+                cur.execute("INSERT INTO claims (summary, method, status, evidence_cids) VALUES (?,?,?,?)",
+                            (c.get("summary",""), c.get("method","peer_review"), c.get("status","pending"), blob))
+                new_id = cur.lastrowid
+            else:
+                cur.execute("INSERT INTO claims (id, summary, method, status, evidence_cids) VALUES (?,?,?,?,?)",
+                            (keep_id, c.get("summary",""), c.get("method","peer_review"), c.get("status","pending"), blob))
+                new_id = keep_id
+            if new_id != keep_id:
+                imported["claim_id_map"][keep_id] = new_id
+        else:
+            cur.execute("INSERT INTO claims (summary, method, status, evidence_cids) VALUES (?,?,?,?)",
+                        (c.get("summary",""), c.get("method","peer_review"), c.get("status","pending"), blob))
+        imported["claims"] += 1
+
+    conn.commit(); conn.close()
+    return imported
+
+
+@app.get("/export/seed")
+def export_seed():
+    conn = get_conn(); cur = conn.cursor()
+    docs = cur.execute("""
+      SELECT cid, sha256, title, description, license, content_type, ingested_at
+      FROM documents
+    """).fetchall()
+    claims = cur.execute("""
+      SELECT id, summary, status, evidence_cids
+      FROM claims ORDER BY id
+    """).fetchall()
+    conn.close()
+    # jsonify rows
+    def rowdicts(rows): return [dict(zip(r.keys(), tuple(r))) for r in rows]
+    return {"docs": rowdicts(docs), "claims": rowdicts(claims)}
+
 
 # --- helpers & home ---
 from fastapi.responses import HTMLResponse

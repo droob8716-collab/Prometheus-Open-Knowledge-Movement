@@ -1,0 +1,39 @@
+# ipfs_client.py
+from __future__ import annotations
+import io, json, os
+from typing import Optional
+import requests
+
+class IPFSClient:
+    def __init__(self,
+                 api_url: Optional[str] = None,
+                 gateway_url: Optional[str] = None):
+        self.api_url = api_url or os.getenv("IPFS_API_URL", "http://127.0.0.1:5001")
+        self.gateway_url = gateway_url or os.getenv("IPFS_GATEWAY_URL", "https://ipfs.io")
+
+    def _api(self, path: str) -> str:
+        return f"{self.api_url}/api/v0{path}"
+
+    def add_bytes(self, data: bytes, filename: str = "file") -> str:
+        """Add bytes to IPFS. Returns CID. Raises if node unreachable."""
+        resp = requests.post(self._api("/add"),
+                             files={"file": (filename, io.BytesIO(data))},
+                             params={"pin": "true"}, timeout=20)
+        resp.raise_for_status()
+        # Some nodes stream JSON lines; take the last JSON object
+        line = resp.text.strip().splitlines()[-1]
+        obj = json.loads(line)
+        return obj["Hash"]
+
+    def cat(self, cid: str) -> bytes:
+        """Fetch bytes for a CID via API, then fall back to gateway."""
+        try:
+            resp = requests.post(self._api("/cat"), params={"arg": cid}, timeout=20)
+            if resp.ok:
+                return resp.content
+        except Exception:
+            pass
+        # Gateway fallback
+        r = requests.get(f"{self.gateway_url}/ipfs/{cid}", timeout=20)
+        r.raise_for_status()
+        return r.content
