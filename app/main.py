@@ -1,7 +1,25 @@
+from __future__ import annotations
+import hashlib
+from typing import Optional, List
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Body
+from pydantic import BaseModel
+
+from .ipfs_client import IPFSClient
+from .ingestion.pdf_ocr import extract_text_from_pdf
+from .storage import Ledgers
+from .verify_store import VerifyStore  # <-- new
+
+app = FastAPI(title="Prometheus – Open Knowledge Movement")  # <-- must be BEFORE any @app.route
+
+ledgers = Ledgers()
+ipfs = IPFSClient()
+verifier = VerifyStore()  # <-- created once, after app exists
+
+
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
-from typing import Optional, List
+from typing import List, Optional
 from pathlib import Path
 import json
 
@@ -15,13 +33,99 @@ from .ingestion.pdf_ocr import extract_text_from_pdf
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Body
 
+from fastapi import Body
+from pathlib import Path
+from .verify_store import VerifyStore
+from pydantic import BaseModel
+
+# near the top
+from typing import List, Optional
+from pydantic import BaseModel, Field
+from pydantic import ConfigDict
+from fastapi import HTTPException
+
+from typing import Optional, Union
+from fastapi import HTTPException
+from pydantic import BaseModel
+
+from typing import Optional, Union
+from fastapi import HTTPException
+from pydantic import BaseModel
+
+class VoteIn(BaseModel):
+    claim_id: Union[int, str]
+    reviewer: Optional[str] = None
+    decision: Optional[str] = None   # approve/reject/upvote/downvote/yes/no
+    value: Optional[int] = None      # +1 or -1
+
+def _normalize_vote(v: VoteIn) -> tuple[str, int, str]:
+    cid = str(v.claim_id)
+    voter = v.reviewer or "anon"
+
+    # If numeric provided, honor it first
+    if v.value in (-1, 1):
+        return cid, int(v.value), voter
+
+    # Otherwise map decision strings to +1 / -1
+    key = (v.decision or "").strip().lower()
+    pos = {"approve", "accept", "upvote", "yes", "y", "true", "1"}
+    neg = {"reject", "downvote", "no", "n", "false", "-1"}
+    if key in pos: return cid, 1, voter
+    if key in neg: return cid, -1, voter
+
+    raise HTTPException(400, "Invalid decision. Use approve/reject (or value +1/-1).")
+
+
+
+
+@app.post("/verify/vote")
+async def verify_vote(v: VoteIn):
+    claim_id, val, voter = _normalize_vote(v)
+    rec = verifier.vote(claim_id=claim_id, value=val, voter=voter)
+    tally = verifier.tally(claim_id)
+    promoted = False
+    try:
+        if tally.get("net", 0) >= 3:
+            claim = verifier.get_claim(claim_id)
+            if claim:
+                ledgers.append_verified({
+                    "cid": claim.get("cid"),
+                    "kind": "VERIFIED",
+                    "title": (claim.get("text") or "claim")[:80],
+                    "text": claim.get("text") or "",
+                    "meta": {"sources": claim.get("sources", [])},
+                    "ts": ledgers.now_iso(),
+                })
+                promoted = True
+    except Exception:
+        pass
+    return {"vote": rec, "tally": tally, "promoted": promoted}
+
+
+class ClaimIn(BaseModel):
+    # allow sending either 'summary' (old) or 'text' (new)
+    model_config = ConfigDict(populate_by_name=True, extra='ignore')
+    text: Optional[str] = Field(default=None, description="Claim text")
+    summary: Optional[str] = Field(default=None, description="Alias of text")
+    cid: Optional[str] = None
+    sources: List[str] = []
+
+@app.post("/verify/propose")
+async def verify_propose(payload: ClaimIn):
+    claim_text = payload.text or payload.summary
+    if not claim_text:
+        raise HTTPException(status_code=422, detail="Provide 'text' or 'summary'.")
+    return verifier.propose(text=claim_text, cid=payload.cid, sources=payload.sources)
+
+
+
 
 APP_DIR = Path(__file__).parent
 STORAGE_DIR = APP_DIR.parent / "storage"
 RAW_LOG = APP_DIR / "raw_log.jsonl"
 VERIFIED_LOG = APP_DIR / "verified_log.jsonl"
 
-app = FastAPI(title="Prometheus PoC API", version="0.1")
+
 from fastapi.responses import HTMLResponse
 
 @app.get("/export/seed")
@@ -306,12 +410,7 @@ def verify_propose(body: VerifyProposal):
         }) + "\n")
 
     return {"claim_id": claim_id, "status": "pending"}
-
-@app.post("/verify/vote")
-def verify_vote(vote: VerifyVote):
-    if vote.decision not in {"verified", "contested", "rejected"}:
-        raise HTTPException(status_code=400, detail="Invalid decision")
-
+\
     conn = get_conn()
     cur = conn.cursor()
 
